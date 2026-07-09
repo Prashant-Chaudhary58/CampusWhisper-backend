@@ -42,6 +42,7 @@ app.use(session({
 
 // Route mappings
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/reports', require('./routes/reports'));
 
 // 404 handler for unmatched routes
 app.use((req, res) => {
