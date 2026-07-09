@@ -8,7 +8,7 @@ const UserSchema = new mongoose.Schema({
     unique: true,
     trim: true,
     lowercase: true,
-    match: [/^\w+([.-]?\w+)*@university\.edu$/, 'Please use a valid institutional email (@university.edu)']
+    match: [/^\w+([.-]?\w+)*@(university\.edu|softwarica\.edu|coventry\.ac\.uk)$/, 'Please use a valid institutional email (@university.edu, @softwarica.edu, or @coventry.ac.uk)']
   },
   password: {
     type: String,

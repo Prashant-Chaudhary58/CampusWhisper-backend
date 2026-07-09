@@ -7,7 +7,7 @@ const { logSecurityEvent } = require('../utils/logger');
 // Password complexity regex (Min 12 chars, 1 upper, 1 lower, 1 digit, 1 special)
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{12,}$/;
 // Institutional email domain validator
-const EMAIL_REGEX = /^\w+([.-]?\w+)*@university\.edu$/;
+const EMAIL_REGEX = /^\w+([.-]?\w+)*@(university\.edu|softwarica\.edu|coventry\.ac\.uk)$/;
 
 /**
  * @route   POST /api/auth/register
