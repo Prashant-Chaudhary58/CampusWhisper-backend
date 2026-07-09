@@ -2,7 +2,9 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const Report = require('../models/Report');
+const Comment = require('../models/Comment');
 const { requireAuth } = require('../middleware/auth');
+const { checkRole } = require('../middleware/rbac');
 const upload = require('../middleware/upload');
 const { encrypt } = require('../utils/crypto');
 
@@ -28,10 +30,8 @@ router.post('/', requireAuth, upload.array('attachments', 3), async (req, res) =
     }
 
     const userId = req.session.userId;
-    // Generate a unique 8-digit case ID
     const caseId = `CW-${Math.floor(10000000 + Math.random() * 90000000)}`;
 
-    // Structure file details
     const attachments = req.files ? req.files.map(file => ({
       filename: file.filename,
       originalName: file.originalname,
@@ -49,12 +49,10 @@ router.post('/', requireAuth, upload.array('attachments', 3), async (req, res) =
     });
 
     if (anonFlag) {
-      // Anonymize the reporter cryptographically
       newReport.encryptedReporterId = encrypt(userId.toString());
       newReport.reporterPseudonym = getPseudonym(userId);
       newReport.reporter = null;
     } else {
-      // Connect to reporter directly
       newReport.reporter = userId;
       newReport.reporterPseudonym = null;
       newReport.encryptedReporterId = null;
@@ -71,7 +69,6 @@ router.post('/', requireAuth, upload.array('attachments', 3), async (req, res) =
     res.status(500).json({ error: error.message || 'Server error while submitting report' });
   }
 }, (error, req, res, next) => {
-  // Catch Multer errors (e.g. file size exceeded)
   res.status(400).json({ error: error.message });
 });
 
@@ -87,7 +84,6 @@ router.get('/', requireAuth, async (req, res) => {
     let reports;
 
     if (role === 'Reporter') {
-      // Reporters can only see their own reports (public or anonymous)
       const pseudonym = getPseudonym(userId);
       reports = await Report.find({
         $or: [
@@ -96,18 +92,14 @@ router.get('/', requireAuth, async (req, res) => {
         ]
       }).sort({ createdAt: -1 });
     } else {
-      // Moderators and Admins can see all reports
       reports = await Report.find().populate('reporter', 'email').sort({ createdAt: -1 });
     }
 
-    // Decrypt fields before returning them to client
     const decryptedReports = reports.map(report => {
       const decrypted = report.getDecryptedData();
-      
-      // If report is anonymous, sanitize and remove sensitive fields from moderators/admins
       if (decrypted.isAnonymous) {
         decrypted.reporter = null;
-        decrypted.encryptedReporterId = undefined; // Strip from response
+        decrypted.encryptedReporterId = undefined;
         decrypted.reporterPseudonym = undefined;
       }
       return decrypted;
@@ -135,7 +127,6 @@ router.get('/:caseId', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Report not found' });
     }
 
-    // Access control check
     if (role === 'Reporter') {
       const pseudonym = getPseudonym(userId);
       const isOwner = report.reporter?.toString() === userId.toString() || report.reporterPseudonym === pseudonym;
@@ -154,6 +145,126 @@ router.get('/:caseId', requireAuth, async (req, res) => {
     res.json({ report: decrypted });
   } catch (error) {
     res.status(500).json({ error: 'Server error retrieving report' });
+  }
+});
+
+/**
+ * @route   PATCH /api/reports/:caseId/status
+ * @desc    Update report status (Triage)
+ */
+router.patch('/:caseId/status', requireAuth, checkRole(['Moderator', 'Admin']), async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { status } = req.body;
+
+    if (!['Open', 'Under Review', 'Resolved'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status value' });
+    }
+
+    const report = await Report.findOneAndUpdate(
+      { caseId },
+      { status },
+      { new: true }
+    );
+
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    res.json({ message: 'Report status updated successfully', status: report.status });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error updating status' });
+  }
+});
+
+/**
+ * @route   POST /api/reports/:caseId/comments
+ * @desc    Add a comment to an incident report
+ */
+router.post('/:caseId/comments', requireAuth, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { text } = req.body;
+    const userId = req.session.userId;
+    const role = req.session.role;
+
+    if (!text || text.trim() === '') {
+      return res.status(400).json({ error: 'Comment text cannot be empty' });
+    }
+
+    const report = await Report.findOne({ caseId });
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    // Access control check for reporters
+    if (role === 'Reporter') {
+      const pseudonym = getPseudonym(userId);
+      const isOwner = report.reporter?.toString() === userId.toString() || report.reporterPseudonym === pseudonym;
+      if (!isOwner) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+
+    const comment = new Comment({
+      report: report._id,
+      author: userId,
+      authorRole: role,
+      text
+    });
+
+    await comment.save();
+    res.status(201).json({ message: 'Comment added successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error adding comment' });
+  }
+});
+
+/**
+ * @route   GET /api/reports/:caseId/comments
+ * @desc    Get comment thread for an incident report
+ */
+router.get('/:caseId/comments', requireAuth, async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const userId = req.session.userId;
+    const role = req.session.role;
+
+    const report = await Report.findOne({ caseId });
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    // Access control check for reporters
+    if (role === 'Reporter') {
+      const pseudonym = getPseudonym(userId);
+      const isOwner = report.reporter?.toString() === userId.toString() || report.reporterPseudonym === pseudonym;
+      if (!isOwner) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+
+    const comments = await Comment.find({ report: report._id })
+      .populate('author', 'email')
+      .sort({ createdAt: 1 });
+
+    const decryptedComments = comments.map(comment => {
+      const decryptedText = comment.getDecryptedText();
+      const commentObj = comment.toObject();
+      commentObj.text = decryptedText;
+
+      // Handle anonymity in comments
+      if (report.isAnonymous && commentObj.authorRole === 'Reporter') {
+        commentObj.author = null; // Conceal reporter details
+      }
+      
+      return commentObj;
+    });
+
+    res.json({ comments: decryptedComments });
+  } catch (error) {
+    console.error('Error fetching comments:', error);
+    res.status(500).json({ error: 'Server error retrieving comments' });
   }
 });
 
