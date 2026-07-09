@@ -28,6 +28,18 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  mfaBackupCodes: {
+    type: [String], // Array of hashed backup recovery codes
+    default: []
+  },
+  mfaEmailCode: {
+    type: String, // Hashed temporary email code
+    default: null
+  },
+  mfaEmailCodeExpires: {
+    type: Date,
+    default: null
+  },
   loginAttempts: {
     type: Number,
     required: true,
