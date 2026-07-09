@@ -19,9 +19,17 @@ app.use(helmet());
 app.use(express.json({ limit: '10kb' })); // Restrict payload size to prevent DoS attacks
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
-// Serve static frontend files
+// Serve static frontend files (Prefers compiled dist, falls back to source folder)
 const path = require('path');
-app.use(express.static(path.join(__dirname, '../frontend')));
+const fs = require('fs');
+const distPath = path.join(__dirname, '../frontend/dist');
+const srcPath = path.join(__dirname, '../frontend');
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+} else {
+  app.use(express.static(srcPath));
+}
 
 // Custom NoSQL query sanitization middleware
 app.use(sanitizeMiddleware);
