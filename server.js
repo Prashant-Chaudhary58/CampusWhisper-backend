@@ -19,6 +19,10 @@ app.use(helmet());
 app.use(express.json({ limit: '10kb' })); // Restrict payload size to prevent DoS attacks
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
+// Serve static frontend files
+const path = require('path');
+app.use(express.static(path.join(__dirname, '../frontend')));
+
 // Custom NoSQL query sanitization middleware
 app.use(sanitizeMiddleware);
 

@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
 const Report = require('../models/Report');
 const Comment = require('../models/Comment');
 const { requireAuth } = require('../middleware/auth');
@@ -152,6 +154,50 @@ router.get('/:caseId', requireAuth, async (req, res) => {
     res.json({ report: decrypted });
   } catch (error) {
     res.status(500).json({ error: 'Server error retrieving report' });
+  }
+});
+
+/**
+ * @route   GET /api/reports/:caseId/attachments/:filename
+ * @desc    Download an attachment securely
+ */
+router.get('/:caseId/attachments/:filename', requireAuth, async (req, res) => {
+  try {
+    const { caseId, filename } = req.params;
+    const userId = req.session.userId;
+    const role = req.session.role;
+
+    const report = await Report.findOne({ caseId });
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    // Access control check
+    if (role === 'Reporter') {
+      const pseudonym = getPseudonym(userId);
+      const isOwner = report.reporter?.toString() === userId.toString() || report.reporterPseudonym === pseudonym;
+      if (!isOwner) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+
+    // Verify attachment belongs to this report
+    const attachment = report.attachments.find(att => att.filename === filename);
+    if (!attachment) {
+      return res.status(404).json({ error: 'Attachment not found in this report' });
+    }
+
+    const filePath = path.join(__dirname, '../uploads', filename);
+    
+    // Check if file exists on disk
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found on disk' });
+    }
+
+    // Send the file securely
+    res.sendFile(filePath);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error downloading attachment' });
   }
 });
 
