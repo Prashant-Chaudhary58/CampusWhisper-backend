@@ -5,6 +5,7 @@ const MongoStore = require('connect-mongo');
 const helmet = require('helmet');
 const connectDB = require('./config/db');
 const sanitizeMiddleware = require('./middleware/sanitize');
+const { csrfProtection, getCsrfToken } = require('./middleware/csrf');
 
 // Initialize database connection
 connectDB();
@@ -40,9 +41,16 @@ app.use(session({
   }
 }));
 
+// Apply custom CSRF protection globally (Must sit after Session middleware)
+app.use(csrfProtection);
+
+// CSRF endpoint to retrieve fresh tokens
+app.get('/api/csrf-token', getCsrfToken);
+
 // Route mappings
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/reports', require('./routes/reports'));
+app.use('/api/mfa', require('./routes/mfa'));
 
 // 404 handler for unmatched routes
 app.use((req, res) => {

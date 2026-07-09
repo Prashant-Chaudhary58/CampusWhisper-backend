@@ -7,6 +7,7 @@ const { requireAuth } = require('../middleware/auth');
 const { checkRole } = require('../middleware/rbac');
 const upload = require('../middleware/upload');
 const { encrypt } = require('../utils/crypto');
+const { logSecurityEvent } = require('../utils/logger');
 
 // Generate a deterministic pseudonym for anonymous queries
 const getPseudonym = (userId) => {
@@ -21,15 +22,17 @@ const getPseudonym = (userId) => {
  * @desc    Submit a new incident report (optionally anonymous)
  */
 router.post('/', requireAuth, upload.array('attachments', 3), async (req, res) => {
+  const ip = req.ip;
+  const userId = req.session.userId;
   try {
     const { title, description, category, isAnonymous } = req.body;
     const anonFlag = isAnonymous === 'true' || isAnonymous === true;
 
     if (!title || !description || !category) {
+      logSecurityEvent(userId, 'REPORT_SUBMISSION', 'FAILURE', ip, 'Missing required fields');
       return res.status(400).json({ error: 'Title, description, and category are required' });
     }
 
-    const userId = req.session.userId;
     const caseId = `CW-${Math.floor(10000000 + Math.random() * 90000000)}`;
 
     const attachments = req.files ? req.files.map(file => ({
@@ -60,15 +63,19 @@ router.post('/', requireAuth, upload.array('attachments', 3), async (req, res) =
 
     await newReport.save();
 
+    logSecurityEvent(userId, 'REPORT_SUBMISSION', 'SUCCESS', ip, `Case ID: ${caseId}, Anonymous: ${anonFlag}`);
+
     res.status(201).json({
       message: 'Report submitted successfully',
       caseId
     });
   } catch (error) {
-    console.error('Error submitting report:', error);
+    logSecurityEvent(userId, 'REPORT_SUBMISSION', 'ERROR', ip, error.message);
     res.status(500).json({ error: error.message || 'Server error while submitting report' });
   }
 }, (error, req, res, next) => {
+  const userId = req.session ? req.session.userId : 'unauthenticated';
+  logSecurityEvent(userId, 'REPORT_SUBMISSION_UPLOAD', 'FAILURE', req.ip, error.message);
   res.status(400).json({ error: error.message });
 });
 
@@ -153,11 +160,14 @@ router.get('/:caseId', requireAuth, async (req, res) => {
  * @desc    Update report status (Triage)
  */
 router.patch('/:caseId/status', requireAuth, checkRole(['Moderator', 'Admin']), async (req, res) => {
+  const ip = req.ip;
+  const userId = req.session.userId;
   try {
     const { caseId } = req.params;
     const { status } = req.body;
 
     if (!['Open', 'Under Review', 'Resolved'].includes(status)) {
+      logSecurityEvent(userId, 'REPORT_TRIAGE', 'FAILURE', ip, `Invalid status value attempt: ${status}`);
       return res.status(400).json({ error: 'Invalid status value' });
     }
 
@@ -168,11 +178,15 @@ router.patch('/:caseId/status', requireAuth, checkRole(['Moderator', 'Admin']), 
     );
 
     if (!report) {
+      logSecurityEvent(userId, 'REPORT_TRIAGE', 'FAILURE', ip, `Report not found: ${caseId}`);
       return res.status(404).json({ error: 'Report not found' });
     }
 
+    logSecurityEvent(userId, 'REPORT_TRIAGE', 'SUCCESS', ip, `Case ID: ${caseId}, New Status: ${status}`);
+
     res.json({ message: 'Report status updated successfully', status: report.status });
   } catch (error) {
+    logSecurityEvent(userId, 'REPORT_TRIAGE', 'ERROR', ip, error.message);
     res.status(500).json({ error: 'Server error updating status' });
   }
 });
@@ -182,18 +196,21 @@ router.patch('/:caseId/status', requireAuth, checkRole(['Moderator', 'Admin']), 
  * @desc    Add a comment to an incident report
  */
 router.post('/:caseId/comments', requireAuth, async (req, res) => {
+  const ip = req.ip;
+  const userId = req.session.userId;
   try {
     const { caseId } = req.params;
     const { text } = req.body;
-    const userId = req.session.userId;
     const role = req.session.role;
 
     if (!text || text.trim() === '') {
+      logSecurityEvent(userId, 'ADD_COMMENT', 'FAILURE', ip, 'Empty comment content');
       return res.status(400).json({ error: 'Comment text cannot be empty' });
     }
 
     const report = await Report.findOne({ caseId });
     if (!report) {
+      logSecurityEvent(userId, 'ADD_COMMENT', 'FAILURE', ip, `Report not found: ${caseId}`);
       return res.status(404).json({ error: 'Report not found' });
     }
 
@@ -202,6 +219,7 @@ router.post('/:caseId/comments', requireAuth, async (req, res) => {
       const pseudonym = getPseudonym(userId);
       const isOwner = report.reporter?.toString() === userId.toString() || report.reporterPseudonym === pseudonym;
       if (!isOwner) {
+        logSecurityEvent(userId, 'ADD_COMMENT_ATTEMPT', 'UNAUTHORIZED', ip, `BOLA/IDOR attempt on Case ID: ${caseId}`);
         return res.status(403).json({ error: 'Access denied' });
       }
     }
@@ -214,8 +232,12 @@ router.post('/:caseId/comments', requireAuth, async (req, res) => {
     });
 
     await comment.save();
+    
+    logSecurityEvent(userId, 'ADD_COMMENT', 'SUCCESS', ip, `Case ID: ${caseId}`);
+    
     res.status(201).json({ message: 'Comment added successfully' });
   } catch (error) {
+    logSecurityEvent(userId, 'ADD_COMMENT', 'ERROR', ip, error.message);
     res.status(500).json({ error: 'Server error adding comment' });
   }
 });
@@ -240,6 +262,7 @@ router.get('/:caseId/comments', requireAuth, async (req, res) => {
       const pseudonym = getPseudonym(userId);
       const isOwner = report.reporter?.toString() === userId.toString() || report.reporterPseudonym === pseudonym;
       if (!isOwner) {
+        logSecurityEvent(userId, 'GET_COMMENTS_ATTEMPT', 'UNAUTHORIZED', req.ip, `BOLA/IDOR query attempt on Case ID: ${caseId}`);
         return res.status(403).json({ error: 'Access denied' });
       }
     }
@@ -253,9 +276,8 @@ router.get('/:caseId/comments', requireAuth, async (req, res) => {
       const commentObj = comment.toObject();
       commentObj.text = decryptedText;
 
-      // Handle anonymity in comments
       if (report.isAnonymous && commentObj.authorRole === 'Reporter') {
-        commentObj.author = null; // Conceal reporter details
+        commentObj.author = null;
       }
       
       return commentObj;
