@@ -131,13 +131,7 @@ router.get('/:caseId', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Report not found' });
     }
 
-    if (role === 'Reporter') {
-      const pseudonym = getPseudonym(userId);
-      const isOwner = report.reporter?.toString() === userId.toString() || report.reporterPseudonym === pseudonym;
-      if (!isOwner) {
-        return res.status(403).json({ error: 'Access denied' });
-      }
-    }
+
 
     const decrypted = report.getDecryptedData();
     if (decrypted.isAnonymous) {
@@ -173,14 +167,7 @@ router.get('/:caseId/attachments/:filename', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Report not found' });
     }
 
-    // Access control check
-    if (role === 'Reporter') {
-      const pseudonym = getPseudonym(userId);
-      const isOwner = report.reporter?.toString() === userId.toString() || report.reporterPseudonym === pseudonym;
-      if (!isOwner) {
-        return res.status(403).json({ error: 'Access denied' });
-      }
-    }
+
 
     // Verify attachment belongs to this report
     const attachment = report.attachments.find(att => att.filename === filename);
@@ -369,15 +356,7 @@ router.post('/:caseId/comments', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Report not found' });
     }
 
-    // Access control check for reporters
-    if (role === 'Reporter') {
-      const pseudonym = getPseudonym(userId);
-      const isOwner = report.reporter?.toString() === userId.toString() || report.reporterPseudonym === pseudonym;
-      if (!isOwner) {
-        logSecurityEvent(userId, 'ADD_COMMENT_ATTEMPT', 'UNAUTHORIZED', ip, `BOLA/IDOR attempt on Case ID: ${caseId}`);
-        return res.status(403).json({ error: 'Access denied' });
-      }
-    }
+
 
     const comment = new Comment({
       report: report._id,
@@ -412,15 +391,7 @@ router.get('/:caseId/comments', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Report not found' });
     }
 
-    // Access control check for reporters
-    if (role === 'Reporter') {
-      const pseudonym = getPseudonym(userId);
-      const isOwner = report.reporter?.toString() === userId.toString() || report.reporterPseudonym === pseudonym;
-      if (!isOwner) {
-        logSecurityEvent(userId, 'GET_COMMENTS_ATTEMPT', 'UNAUTHORIZED', req.ip, `BOLA/IDOR query attempt on Case ID: ${caseId}`);
-        return res.status(403).json({ error: 'Access denied' });
-      }
-    }
+
 
     const comments = await Comment.find({ report: report._id })
       .populate('author', 'email')
