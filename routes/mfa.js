@@ -35,22 +35,36 @@ router.post('/setup', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'MFA is already enabled' });
     }
 
-    const secret = speakeasy.generateSecret({
-      name: `CampusWhisper (${user.email})`
-    });
+    let secretBase32 = user.mfaSecret;
+    let otpauthUrl;
 
-    user.mfaSecret = secret.base32;
-    await user.save();
+    if (!secretBase32) {
+      const secret = speakeasy.generateSecret({
+        name: `CampusWhisper (${user.email})`,
+        issuer: 'CampusWhisper'
+      });
+      secretBase32 = secret.base32;
+      otpauthUrl = secret.otpauth_url;
+      user.mfaSecret = secretBase32;
+      await user.save();
+      logSecurityEvent(userId, 'MFA_SETUP_INITIALIZED', 'SUCCESS', ip, 'TOTP secret generated');
+    } else {
+      otpauthUrl = speakeasy.otpauthURL({
+        secret: secretBase32,
+        label: `CampusWhisper (${user.email})`,
+        issuer: 'CampusWhisper',
+        encoding: 'base32'
+      });
+      logSecurityEvent(userId, 'MFA_SETUP_INITIALIZED', 'SUCCESS', ip, 'TOTP secret reused');
+    }
 
-    logSecurityEvent(userId, 'MFA_SETUP_INITIALIZED', 'SUCCESS', ip, 'TOTP secret generated');
-
-    qrcode.toDataURL(secret.otpauth_url, (err, dataUrl) => {
+    qrcode.toDataURL(otpauthUrl, (err, dataUrl) => {
       if (err) {
         logSecurityEvent(userId, 'MFA_SETUP_QR', 'FAILURE', ip, err.message);
         return res.status(500).json({ error: 'Error generating QR code' });
       }
       res.json({
-        secret: secret.base32,
+        secret: secretBase32,
         qrCode: dataUrl
       });
     });
