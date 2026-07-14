@@ -100,6 +100,12 @@ router.get('/', requireAuth, async (req, res) => {
         decrypted.encryptedReporterId = undefined;
         decrypted.reporterPseudonym = undefined;
       }
+      decrypted.agreeCount = (report.agreedUsers || []).length;
+      decrypted.disagreeCount = (report.disagreedUsers || []).length;
+      decrypted.userHasAgreed = (report.agreedUsers || []).some(id => id.toString() === userId.toString());
+      decrypted.userHasDisagreed = (report.disagreedUsers || []).some(id => id.toString() === userId.toString());
+      decrypted.agreedUsers = undefined;
+      decrypted.disagreedUsers = undefined;
       return decrypted;
     });
 
@@ -139,6 +145,12 @@ router.get('/:caseId', requireAuth, async (req, res) => {
       decrypted.encryptedReporterId = undefined;
       decrypted.reporterPseudonym = undefined;
     }
+    decrypted.agreeCount = (report.agreedUsers || []).length;
+    decrypted.disagreeCount = (report.disagreedUsers || []).length;
+    decrypted.userHasAgreed = (report.agreedUsers || []).some(id => id.toString() === userId.toString());
+    decrypted.userHasDisagreed = (report.disagreedUsers || []).some(id => id.toString() === userId.toString());
+    decrypted.agreedUsers = undefined;
+    decrypted.disagreedUsers = undefined;
 
     res.json({ report: decrypted });
   } catch (error) {
@@ -251,6 +263,86 @@ router.patch('/:caseId/pin', requireAuth, async (req, res) => {
   } catch (error) {
     logSecurityEvent(userId, 'REPORT_PIN_TOGGLE', 'ERROR', ip, error.message);
     res.status(500).json({ error: 'Server error updating pin status' });
+  }
+});
+
+/**
+ * @route   PATCH /api/reports/:caseId/agree
+ * @desc    Toggle agreement status on a report
+ */
+router.patch('/:caseId/agree', requireAuth, async (req, res) => {
+  const ip = req.ip;
+  const userId = req.session.userId;
+  try {
+    const { caseId } = req.params;
+    const report = await Report.findOne({ caseId });
+    if (!report) {
+      logSecurityEvent(userId, 'REPORT_AGREE_TOGGLE', 'FAILURE', ip, `Report not found: ${caseId}`);
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    const agreeIndex = report.agreedUsers.indexOf(userId);
+    const disagreeIndex = report.disagreedUsers.indexOf(userId);
+
+    if (agreeIndex > -1) {
+      report.agreedUsers.splice(agreeIndex, 1);
+    } else {
+      report.agreedUsers.push(userId);
+      if (disagreeIndex > -1) {
+        report.disagreedUsers.splice(disagreeIndex, 1);
+      }
+    }
+
+    await report.save();
+    logSecurityEvent(userId, 'REPORT_AGREE_TOGGLE', 'SUCCESS', ip, `Case ID: ${caseId}`);
+    res.json({
+      message: 'Report agreement toggled',
+      agreeCount: report.agreedUsers.length,
+      disagreeCount: report.disagreedUsers.length
+    });
+  } catch (error) {
+    logSecurityEvent(userId, 'REPORT_AGREE_TOGGLE', 'ERROR', ip, error.message);
+    res.status(500).json({ error: 'Server error toggling agreement' });
+  }
+});
+
+/**
+ * @route   PATCH /api/reports/:caseId/disagree
+ * @desc    Toggle disagreement status on a report
+ */
+router.patch('/:caseId/disagree', requireAuth, async (req, res) => {
+  const ip = req.ip;
+  const userId = req.session.userId;
+  try {
+    const { caseId } = req.params;
+    const report = await Report.findOne({ caseId });
+    if (!report) {
+      logSecurityEvent(userId, 'REPORT_DISAGREE_TOGGLE', 'FAILURE', ip, `Report not found: ${caseId}`);
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    const agreeIndex = report.agreedUsers.indexOf(userId);
+    const disagreeIndex = report.disagreedUsers.indexOf(userId);
+
+    if (disagreeIndex > -1) {
+      report.disagreedUsers.splice(disagreeIndex, 1);
+    } else {
+      report.disagreedUsers.push(userId);
+      if (agreeIndex > -1) {
+        report.agreedUsers.splice(agreeIndex, 1);
+      }
+    }
+
+    await report.save();
+    logSecurityEvent(userId, 'REPORT_DISAGREE_TOGGLE', 'SUCCESS', ip, `Case ID: ${caseId}`);
+    res.json({
+      message: 'Report disagreement toggled',
+      agreeCount: report.agreedUsers.length,
+      disagreeCount: report.disagreedUsers.length
+    });
+  } catch (error) {
+    logSecurityEvent(userId, 'REPORT_DISAGREE_TOGGLE', 'ERROR', ip, error.message);
+    res.status(500).json({ error: 'Server error toggling disagreement' });
   }
 });
 

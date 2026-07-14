@@ -44,12 +44,19 @@ const ReportSchema = new mongoose.Schema({
     type: String,
     default: null
   },
-  // One-way cryptographic hash of User ID (allows users to query their own reports securely)
   reporterPseudonym: {
     type: String,
     default: null,
     index: true
   },
+  agreedUsers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  disagreedUsers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
   attachments: [{
     filename: String,
     originalName: String,
