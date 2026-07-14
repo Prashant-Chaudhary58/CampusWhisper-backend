@@ -91,7 +91,7 @@ router.get('/', requireAuth, async (req, res) => {
     const userId = req.session.userId;
     const role = req.session.role;
 
-    reports = await Report.find().populate('reporter', 'email').sort({ createdAt: -1 });
+    reports = await Report.find().populate('reporter', 'email').sort({ isPinned: -1, createdAt: -1 });
 
     const decryptedReports = reports.map(report => {
       const decrypted = report.getDecryptedData();
@@ -223,6 +223,34 @@ router.patch('/:caseId/status', requireAuth, checkRole(['Moderator', 'Admin']), 
   } catch (error) {
     logSecurityEvent(userId, 'REPORT_TRIAGE', 'ERROR', ip, error.message);
     res.status(500).json({ error: 'Server error updating status' });
+  }
+});
+
+/**
+ * @route   PATCH /api/reports/:caseId/pin
+ * @desc    Toggle pin status for an incident report
+ */
+router.patch('/:caseId/pin', requireAuth, async (req, res) => {
+  const ip = req.ip;
+  const userId = req.session.userId;
+  try {
+    const { caseId } = req.params;
+    const report = await Report.findOne({ caseId });
+    
+    if (!report) {
+      logSecurityEvent(userId, 'REPORT_PIN_TOGGLE', 'FAILURE', ip, `Report not found: ${caseId}`);
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    // Toggle the pin
+    report.isPinned = !report.isPinned;
+    await report.save();
+
+    logSecurityEvent(userId, 'REPORT_PIN_TOGGLE', 'SUCCESS', ip, `Case ID: ${caseId}, Pinned: ${report.isPinned}`);
+    res.json({ message: 'Report pin status updated successfully', isPinned: report.isPinned });
+  } catch (error) {
+    logSecurityEvent(userId, 'REPORT_PIN_TOGGLE', 'ERROR', ip, error.message);
+    res.status(500).json({ error: 'Server error updating pin status' });
   }
 });
 

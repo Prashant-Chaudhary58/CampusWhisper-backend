@@ -29,6 +29,10 @@ const ReportSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isPinned: {
+    type: Boolean,
+    default: false
+  },
   // Plain link to User (null if report is anonymous)
   reporter: {
     type: mongoose.Schema.Types.ObjectId,
