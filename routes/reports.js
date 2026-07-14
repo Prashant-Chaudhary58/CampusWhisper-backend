@@ -159,9 +159,13 @@ router.get('/:caseId', requireAuth, async (req, res) => {
     decrypted.disagreedUsers = undefined;
 
     // Compute ownership flag securely on the server
+    // Note: reporter is populated (User document), so use ._id to get the ObjectId
     const pseudonym = getPseudonym(userId);
+    const reporterIdStr = report.reporter?._id
+      ? report.reporter._id.toString()
+      : report.reporter?.toString();
     decrypted.isOwner = (
-      (report.reporter && report.reporter.toString() === userId.toString()) ||
+      (reporterIdStr && reporterIdStr === userId.toString()) ||
       (report.reporterPseudonym && report.reporterPseudonym === pseudonym)
     );
 
@@ -456,7 +460,7 @@ router.put('/:caseId', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Report not found' });
     }
 
-    // Ownership check — anonymous reports use pseudonym; public reports use reporter field
+    // Ownership check — reporter is a raw ObjectId here (not populated), safe to use .toString()
     const pseudonym = getPseudonym(userId);
     const isOwner = (
       (report.reporter && report.reporter.toString() === userId.toString()) ||
@@ -499,7 +503,7 @@ router.delete('/:caseId', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Report not found' });
     }
 
-    // Ownership check
+    // Ownership check — reporter is a raw ObjectId here (not populated), safe to use .toString()
     const pseudonym = getPseudonym(userId);
     const isOwner = (
       (report.reporter && report.reporter.toString() === userId.toString()) ||
