@@ -10,6 +10,7 @@ const { checkRole } = require('../middleware/rbac');
 const upload = require('../middleware/upload');
 const { encrypt } = require('../utils/crypto');
 const { logSecurityEvent } = require('../utils/logger');
+const mongoose = require('mongoose');
 
 // Generate a deterministic pseudonym for anonymous queries
 const getPseudonym = (userId) => {
@@ -90,19 +91,7 @@ router.get('/', requireAuth, async (req, res) => {
     const userId = req.session.userId;
     const role = req.session.role;
 
-    let reports;
-
-    if (role === 'Reporter') {
-      const pseudonym = getPseudonym(userId);
-      reports = await Report.find({
-        $or: [
-          { reporter: userId },
-          { reporterPseudonym: pseudonym }
-        ]
-      }).sort({ createdAt: -1 });
-    } else {
-      reports = await Report.find().populate('reporter', 'email').sort({ createdAt: -1 });
-    }
+    reports = await Report.find().populate('reporter', 'email').sort({ createdAt: -1 });
 
     const decryptedReports = reports.map(report => {
       const decrypted = report.getDecryptedData();
