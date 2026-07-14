@@ -90,8 +90,20 @@ router.get('/', requireAuth, async (req, res) => {
   try {
     const userId = req.session.userId;
     const role = req.session.role;
+    const mine = req.query.mine === 'true';
 
-    reports = await Report.find().populate('reporter', 'email').sort({ isPinned: -1, createdAt: -1 });
+    let query = {};
+    if (mine) {
+      const pseudonym = getPseudonym(userId);
+      query = {
+        $or: [
+          { reporter: userId },
+          { reporterPseudonym: pseudonym }
+        ]
+      };
+    }
+
+    reports = await Report.find(query).populate('reporter', 'email').sort({ isPinned: -1, createdAt: -1 });
 
     const decryptedReports = reports.map(report => {
       const decrypted = report.getDecryptedData();
