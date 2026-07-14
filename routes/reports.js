@@ -158,6 +158,13 @@ router.get('/:caseId', requireAuth, async (req, res) => {
     decrypted.agreedUsers = undefined;
     decrypted.disagreedUsers = undefined;
 
+    // Compute ownership flag securely on the server
+    const pseudonym = getPseudonym(userId);
+    decrypted.isOwner = (
+      (report.reporter && report.reporter.toString() === userId.toString()) ||
+      (report.reporterPseudonym && report.reporterPseudonym === pseudonym)
+    );
+
     res.json({ report: decrypted });
   } catch (error) {
     res.status(500).json({ error: 'Server error retrieving report' });
@@ -428,4 +435,105 @@ router.get('/:caseId/comments', requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * @route   PUT /api/reports/:caseId
+ * @desc    Update a report's content (owner only)
+ */
+router.put('/:caseId', requireAuth, async (req, res) => {
+  const ip = req.ip;
+  const userId = req.session.userId;
+  try {
+    const { caseId } = req.params;
+    const { title, category, description } = req.body;
+
+    if (!title && !category && !description) {
+      return res.status(400).json({ error: 'At least one field (title, category, description) is required to update' });
+    }
+
+    const report = await Report.findOne({ caseId });
+    if (!report) {
+      logSecurityEvent(userId, 'REPORT_UPDATE', 'FAILURE', ip, `Report not found: ${caseId}`);
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    // Ownership check — anonymous reports use pseudonym; public reports use reporter field
+    const pseudonym = getPseudonym(userId);
+    const isOwner = (
+      (report.reporter && report.reporter.toString() === userId.toString()) ||
+      (report.reporterPseudonym && report.reporterPseudonym === pseudonym)
+    );
+
+    if (!isOwner) {
+      logSecurityEvent(userId, 'REPORT_UPDATE', 'FAILURE', ip, `Unauthorized update attempt on ${caseId}`);
+      return res.status(403).json({ error: 'You are not authorized to edit this report' });
+    }
+
+    // Update fields — pre-save hook will re-encrypt title & description
+    if (title)       report.title       = title;
+    if (category)    report.category    = category;
+    if (description) report.description = description;
+
+    await report.save();
+
+    logSecurityEvent(userId, 'REPORT_UPDATE', 'SUCCESS', ip, `Case ID: ${caseId}`);
+    res.json({ message: 'Report updated successfully', caseId });
+  } catch (error) {
+    logSecurityEvent(userId, 'REPORT_UPDATE', 'ERROR', ip, error.message);
+    res.status(500).json({ error: 'Server error updating report' });
+  }
+});
+
+/**
+ * @route   DELETE /api/reports/:caseId
+ * @desc    Delete a report and all related data (owner only)
+ */
+router.delete('/:caseId', requireAuth, async (req, res) => {
+  const ip = req.ip;
+  const userId = req.session.userId;
+  try {
+    const { caseId } = req.params;
+
+    const report = await Report.findOne({ caseId });
+    if (!report) {
+      logSecurityEvent(userId, 'REPORT_DELETE', 'FAILURE', ip, `Report not found: ${caseId}`);
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    // Ownership check
+    const pseudonym = getPseudonym(userId);
+    const isOwner = (
+      (report.reporter && report.reporter.toString() === userId.toString()) ||
+      (report.reporterPseudonym && report.reporterPseudonym === pseudonym)
+    );
+
+    if (!isOwner) {
+      logSecurityEvent(userId, 'REPORT_DELETE', 'FAILURE', ip, `Unauthorized delete attempt on ${caseId}`);
+      return res.status(403).json({ error: 'You are not authorized to delete this report' });
+    }
+
+    // Delete attachment files from disk
+    if (report.attachments && report.attachments.length > 0) {
+      report.attachments.forEach(att => {
+        const filePath = path.join(__dirname, '../uploads', att.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      });
+    }
+
+    // Delete all associated comments
+    await Comment.deleteMany({ report: report._id });
+
+    // Delete the report
+    await Report.deleteOne({ caseId });
+
+    logSecurityEvent(userId, 'REPORT_DELETE', 'SUCCESS', ip, `Case ID: ${caseId}`);
+    res.json({ message: 'Report and all associated data deleted successfully' });
+  } catch (error) {
+    logSecurityEvent(userId, 'REPORT_DELETE', 'ERROR', ip, error.message);
+    res.status(500).json({ error: 'Server error deleting report' });
+  }
+});
+
 module.exports = router;
+
