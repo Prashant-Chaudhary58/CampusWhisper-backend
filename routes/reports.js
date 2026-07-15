@@ -365,7 +365,7 @@ router.post('/:caseId/comments', requireAuth, async (req, res) => {
   const userId = req.session.userId;
   try {
     const { caseId } = req.params;
-    const { text } = req.body;
+    const { text, isAnonymous } = req.body;
     const role = req.session.role;
 
     if (!text || text.trim() === '') {
@@ -385,7 +385,8 @@ router.post('/:caseId/comments', requireAuth, async (req, res) => {
       report: report._id,
       author: userId,
       authorRole: role,
-      text
+      text,
+      isAnonymous: !!isAnonymous
     });
 
     await comment.save();
@@ -427,7 +428,7 @@ router.get('/:caseId/comments', requireAuth, async (req, res) => {
 
       commentObj.isMe = comment.author && comment.author._id.toString() === userId.toString();
 
-      if (report.isAnonymous && commentObj.authorRole === 'Reporter') {
+      if (commentObj.isAnonymous || (report.isAnonymous && commentObj.authorRole === 'Reporter')) {
         commentObj.author = null;
       }
       

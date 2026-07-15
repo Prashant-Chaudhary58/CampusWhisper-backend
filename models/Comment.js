@@ -20,6 +20,10 @@ const CommentSchema = new mongoose.Schema({
   text: {
     type: String, // Stored encrypted
     required: [true, 'Comment content is required']
+  },
+  isAnonymous: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
