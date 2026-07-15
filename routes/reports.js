@@ -425,6 +425,8 @@ router.get('/:caseId/comments', requireAuth, async (req, res) => {
       const commentObj = comment.toObject();
       commentObj.text = decryptedText;
 
+      commentObj.isMe = comment.author && comment.author._id.toString() === userId.toString();
+
       if (report.isAnonymous && commentObj.authorRole === 'Reporter') {
         commentObj.author = null;
       }
